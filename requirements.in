@@ -1,0 +1,17 @@
+openai
+fastapi
+uvicorn
+sse-starlette
+fredapi
+yfinance
+edinet-tools
+sec-api
+polygon-api-client
+alpha_vantage
+tavily-python
+duckduckgo_search
+python-dotenv
+httpx
+pandas
+pytest
+pytest-asyncio
