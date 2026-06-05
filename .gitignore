@@ -42,4 +42,4 @@ Thumbs.db
 desktop.ini
 
 # ── Claude Code ──────────────────────────────────────────────────────
-.claude/
+# .claude/   # Uncomment to exclude CLAUDE.md and project settings from version control

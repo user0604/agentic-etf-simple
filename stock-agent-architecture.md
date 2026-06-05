@@ -86,6 +86,13 @@ Phase 5b — TIE-BREAK (if needed)
 
 Phase 6 — FINAL
   A collects final portfolio and renders output with full audit trail
+  A enriches each holding with thesis, price, and share volume from the research cache
+    (no additional LLM calls — reuses researcher outputs)
+  A computes JPY amount from pct × budget if agent B omitted allocation_jpy
+  A emits portfolio payload to frontend with sector, confidence, thesis per ticker
+
+Post-run: user can export full screen state (portfolio + events) to a downloadable JSON file,
+or load a previously exported file to reconstruct the exact screen state without re-running.
 
 M-UPDATE (can interrupt Phases 2–5)
   Signal from B, C, or D → A triggers M update

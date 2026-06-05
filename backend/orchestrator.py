@@ -91,6 +91,18 @@ class Orchestrator:
     def on_event(self, callback):
         self._event_callbacks.append(callback)
 
+    async def _emit_retry_event(self, attempt: int, status_code: int, wait: float, key_idx: int, num_keys: int):
+        """Called by call_llm's retry-hook on each throttling retry."""
+        await self._emit(
+            "system", "retry",
+            f"Rate limited (HTTP {status_code}) — "
+            f"retry #{attempt}, key #{key_idx+1}/{num_keys}, "
+            f"waiting {wait:.0f}s...",
+            retry_info={"attempt": attempt, "status_code": status_code,
+                         "wait_seconds": round(wait, 1),
+                         "key_index": key_idx + 1, "total_keys": num_keys},
+        )
+
     async def _emit(self, agent: str, status: str, message: str, **extra):
         payload = {"agent": agent, "status": status, "message": message, **extra}
         for cb in self._event_callbacks:
@@ -364,17 +376,50 @@ class Orchestrator:
         draft = self.outputs.get("portfolio_draft") or {}
         raw_holdings = draft.get("holdings") or []
 
+        # Build lookup from research cache to enrich holdings with thesis/price/sector
+        research_lookup = {}
+        for topic, candidates in self.research_cache.items():
+            for c in candidates:
+                tk = (c.get("ticker") or "").upper().strip()
+                if tk:
+                    existing = research_lookup.get(tk, {})
+                    # Prefer richer entry (more keys)
+                    if len(c) > len(existing):
+                        research_lookup[tk] = c
+
         # Normalize holdings field names for the frontend
-        # (B agent may use allocation_pct/allocation_jpy; frontend expects amount/pct)
+        budget_float = float(self.budget) if self.budget else 0
         normalized = []
         for h in raw_holdings:
+            h_ticker = (h.get("ticker") or "?").upper().strip()
+            pct = h.get("allocation_pct") or h.get("pct") or 0
+            amount = h.get("allocation_jpy")
+            if amount is None:
+                amount = h.get("amount")
+            if amount is None:
+                amount = budget_float * pct / 100.0
+
+            rc = research_lookup.get(h_ticker, {})
+            thesis = h.get("thesis") or rc.get("thesis") or rc.get("investment_thesis") or ""
+            price = rc.get("price") or rc.get("current_price")
+            sector = rc.get("sector") or rc.get("industry") or ""
+            volume = None
+            if price and amount:
+                try:
+                    volume = round(amount / float(price))
+                except (ValueError, TypeError):
+                    pass
+
             normalized.append({
-                "ticker": h.get("ticker", "?"),
-                "name": h.get("name", h.get("ticker", "?")),
-                "amount": h.get("allocation_jpy") or h.get("amount") or 0,
-                "pct": h.get("allocation_pct") or h.get("pct") or 0,
+                "ticker": h_ticker,
+                "name": h.get("name") or rc.get("name", h_ticker),
+                "amount": amount,
+                "pct": pct,
                 "confidence": h.get("confidence", "medium"),
-                "thesis": h.get("thesis", ""),
+                "thesis": thesis,
+                "sector": sector,
+                "price": float(price) if price else None,
+                "volume": volume,
             })
 
         self.outputs["portfolio_final"] = {
@@ -519,6 +564,10 @@ class Orchestrator:
 
     async def run(self):
         """Execute the full agent pipeline."""
+        # Install the retry-hook so call_llm can emit SSE events on throttling retries
+        from backend.agents._base import set_retry_hook
+        set_retry_hook(self._emit_retry_event)
+
         phase_handlers = {
             Phase.MACRO: self._phase_macro,
             Phase.PLANNING: self._phase_planning,

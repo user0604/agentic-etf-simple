@@ -5,10 +5,19 @@ Dispatches internally based on the current phase from context.
 import json
 import logging
 import hashlib
+from pathlib import Path
 
 from backend.agents._base import build_agent_prompt, call_llm, extract_json
 
 logger = logging.getLogger(__name__)
+
+# Load curated research themes from project root
+_RESEARCH_THEMES_PATH = Path(__file__).resolve().parent.parent.parent / "research-structure.md"
+try:
+    RESEARCH_THEMES = _RESEARCH_THEMES_PATH.read_text(encoding="utf-8")
+except Exception:
+    RESEARCH_THEMES = ""
+    logger.warning("Could not load research-structure.md — B will generate tasks from scratch")
 
 TASK_PLAN_FORMAT = {
     "agent": "B", "status": "done",
@@ -78,12 +87,17 @@ async def _define_research_tasks(openai_client, model: str, macro_brief: dict, c
         "macro_brief": macro_brief,
         "m_update_count": context.get("m_update_count", 0),
         "existing_research_cache": list(context.get("research_cache", {}).keys()),
+        "available_themes": RESEARCH_THEMES,
     }
     system_prompt = build_agent_prompt(
         role="Portfolio Manager (Research Planner)", context=context_data,
         instructions=(
-            "Define 4-6 research tasks covering distinct industries/themes across US and Japan equities. "
-            "Declare a single USD/JPY FX rate. Budget percentages should sum to 100."
+            "Review the available research themes in 'available_themes'. "
+            "Select 8-12 themes that best fit the macro brief, adapting each theme's "
+            "focus as needed (e.g. adjust screening thresholds, add/remove examples). "
+            "Distribute budget percentages across selected themes — sum must equal 100. "
+            "Cover a mix of US and Japan themes based on the macro brief's allocation rationale. "
+            "Declare a single USD/JPY FX rate."
         ),
         output_format=TASK_PLAN_FORMAT,
     )

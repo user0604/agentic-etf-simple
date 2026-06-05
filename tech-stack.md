@@ -76,24 +76,52 @@ portfolio table — that would be awkward in plain HTML/JS.
 Fastest local dev server setup for React. No configuration needed beyond
 `npm create vite@latest`. Hot module reload makes UI iteration fast.
 
-**UI layout (two panels):**
+**UI layout (three sections):**
 
 ```
 ┌──────────────────────┬──────────────────────────────────────────┐
 │  Run Parameters      │  Agent Activity Feed                     │
-│  ─────────────────   │  ──────────────────────────────────────  │
-│  Budget: ¥1,000,000  │  [✓] M  Macro brief complete             │
-│  Date: 2026-06-09    │  [✓] B  Research plan: 6 tasks issued    │
-│                      │  [~] X1 Researching US semiconductors... │
-│  [Run]               │  [~] X2 Researching Japan industrials... │
-│                      │  [ ] X3 Pending                          │
-│  Past Runs           │  [ ] C  Waiting for draft               │
-│  ─────────────────   │  ─────────────────────────────────────── │
-│  2026-06-01 ¥1M      │  Portfolio Draft             [expand]    │
-│  2026-05-15 ¥500K    │  Critique Round 1            [expand]    │
-│                      │  Final Portfolio             [expand]    │
+│  (hidden while       │  ──────────────────────────────────────  │
+│   running)           │  [⟳] Orchestrator: Starting run          │
+│                      │  [✓] Macro Strategist: Brief complete    │
+│  Past Runs           │  [✓] Portfolio Builder (B): Tasks issued │
+│  ─────────────────   │  [⟳] Research Agent X1: Working...       │
+│  2026-06-01 ¥1M      │  [✓] Critic (C): Round 1 done            │
+│  2026-05-15 ¥500K    │  [▶ Show details] Critique content       │
+│                      │  [✓] Tiebreaker (D): Approved             │
+│                      │  ──────────────────────────────────────  │
+│                      │  Portfolio Table (thesis, volume,        │
+│                      │  allocation, confidence per holding)     │
+│                      │  ⬇ Export to JSON  ⬆ Load from JSON     │
 └──────────────────────┴──────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ Pipeline (status bar, always visible while running)              │
+│ ✓ Macro Strategist | ● Portfolio Builder | → Critic, Tiebreaker │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**GUI features during this session's implementation:**
+
+- **Timestamp on every event**: Each activity feed line shows a local-time timestamp (HH:mm:ss) in the user's timezone, added client-side when the SSE event is received.
+- **Run Parameters panel disappears** while a run is in progress, replaced by a compact "Run in Progress" indicator showing the Run ID and a pulsing dot.
+- **Agent status bar** pinned to the bottom of the viewport while a run is active. Shows three labeled columns: `Finished:` (✓ completed agents), `Working:` (● with pulsing dot), and `Up next:` (→ pending) — all displayed with agent role names (e.g. "Macro Strategist" not "M").
+- **Smart detail formatting**: The collapsible "Show details" sections render structured content as readable paragraphs and tables instead of raw JSON dumps:
+  - Research tasks: formatted list with topic, industry, geography, and budget badge
+  - Critique rounds: styled verdict badge, issues with severity tags, strengths list, suggested adjustments
+  - Portfolio drafts: inline table of tickers with allocation %, confidence, expected return
+  - Macro briefs: key-value pairs replacing `_` with ` ` and capitalizing labels
+  - Research candidates: individual cards showing ticker, sector, price, return, and confidence
+  - Tiebreaker verdict: large styled APPROVED or REVISE badge with reasoning
+- **Smart detail formatting**: The collapsible "Show details" sections render structured content as readable paragraphs and tables instead of raw JSON dumps:
+  - Research tasks: formatted list with topic, industry, geography, and budget badge
+  - Critique rounds: styled verdict badge, issues with severity tags, strengths list, suggested adjustments
+  - Portfolio drafts: inline table of tickers with allocation %, confidence, expected return
+  - Macro briefs: key-value pairs replacing `_` with ` ` and capitalizing labels
+  - Research candidates: individual cards showing ticker, sector, price, return, and confidence
+  - Tiebreaker verdict: large styled APPROVED or REVISE badge with reasoning
+- **Agent role naming everywhere**: The activity feed and status bar display human-readable role names (e.g. "Macro Strategist (M)", "Portfolio Builder (B)", "Critic (C)", "Tiebreaker (D)", "Research Agent X1") instead of raw single-letter codes.
+- **Portfolio enrichment**: Final portfolio table includes columns for sector, estimated share price, computed share volume, and an expandable "View" button for the full investment thesis per holding. The thesis is sourced from the research cache — no additional LLM calls needed.
+- **Export / Load JSON**: After any completed run, an "⬇ Export to JSON" button saves the full portfolio data, event log, and run metadata as a downloadable `.json` file. "⬆ Load from JSON" opens a file picker to load a previously exported file and reconstruct the exact screen state (portfolio table + activity feed) without re-running.
 
 ---
 

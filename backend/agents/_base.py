@@ -19,6 +19,21 @@ _last_call_time = 0.0
 _RATE_LIMIT_MIN_INTERVAL = 0.5  # seconds between calls (2 calls/sec max)
 _call_counter = 0  # incremented per call for round-robin key distribution
 
+# Retry-hook: set by the orchestrator so call_llm can emit SSE events
+# when throttling retries happen. This avoids threading callbacks through
+# every agent function signature.
+_retry_hook = None
+
+
+def set_retry_hook(callback):
+    """Set a global callback invoked on each retry attempt.
+
+    The callback receives: (attempt, status_code, wait_seconds, key_index, num_keys)
+    Set to None to disable.
+    """
+    global _retry_hook
+    _retry_hook = callback
+
 
 async def call_llm(
     openai_client,
@@ -27,11 +42,15 @@ async def call_llm(
     user_message: str,
     temperature: float = 0.3,
     max_tokens: int = 8192,
-    max_retries: int = 5,
+    on_retry=None,
 ) -> str:
-    """Call the LLM via NIM with rate-limit handling and retry with backoff.
+    """Call the LLM via NIM with rate-limit handling and infinite retry.
 
-    Retries on 429 (rate limit), 502, 503 with exponential backoff + jitter.
+    Retries on 429 (rate limit), 502, 503 *indefinitely* — the system
+    never stops due to throttling. Each retry is logged and, if a
+    retry-hook is registered, an SSE event is emitted so the frontend
+    can display retry status to the user.
+
     Enforces a global minimum interval between calls.
 
     API key rotation (round-robin):
@@ -48,7 +67,8 @@ async def call_llm(
         user_message: The user turn content.
         temperature: Sampling temperature.
         max_tokens: Maximum tokens in the response.
-        max_retries: Max retries on throttling errors (default 5).
+        on_retry: Optional per-call callback (attempt, status, wait, key_idx, num_keys).
+            If not provided, falls back to the global _retry_hook.
 
     Returns:
         The response text content.
@@ -68,8 +88,10 @@ async def call_llm(
     num_keys = len(api_keys)
     base_url = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
-    last_exc = None
-    for attempt in range(1, max_retries + 1):
+    retry_cb = on_retry or _retry_hook
+
+    attempt = 1
+    while True:
         try:
             # Round-robin: pick a key based on (call_counter + attempt - 1)
             # This distributes the *first attempt* of each call across all keys,
@@ -80,6 +102,7 @@ async def call_llm(
                 client = AsyncOpenAI(api_key=key, base_url=base_url)
             else:
                 client = openai_client
+                key_idx = 0
 
             response = await client.chat.completions.create(
                 model=model,
@@ -95,26 +118,29 @@ async def call_llm(
 
         except Exception as e:
             status = _extract_status(e)
-            last_exc = e
 
-            # Only retry on throttling / transient server errors
             if status in (429, 502, 503):
+                # Infinite retry on throttling — never give up
                 wait = min(2 ** attempt + (attempt * 0.5), 30.0)  # exponential backoff + jitter, cap at 30s
                 key_idx = (_call_counter + attempt - 1) % num_keys if num_keys > 1 else 0
                 logger.warning(
-                    f"LLM call attempt {attempt}/{max_retries} got HTTP {status}, "
+                    f"LLM call attempt {attempt} got HTTP {status}, "
                     f"key #{key_idx + 1}/{num_keys}, "
                     f"retrying in {wait:.1f}s: {e}"
                 )
+                # Fire retry-hook so the orchestrator can emit an SSE event
+                if retry_cb:
+                    try:
+                        await retry_cb(attempt, status, wait, key_idx, num_keys)
+                    except Exception:
+                        logger.exception("Retry-hook callback failed, continuing retry loop")
                 await asyncio.sleep(wait)
+                attempt += 1
             else:
                 # Non-retryable error (400, 404, 401, etc.) — raise immediately
+                _call_counter += 1
+                logger.error(f"LLM call got non-retryable HTTP {status}: {e}")
                 raise
-
-    # All retries exhausted — advance counter so next call doesn't repeat the same key
-    _call_counter += 1
-    logger.error(f"LLM call failed after {max_retries} retries: {last_exc}")
-    raise last_exc  # type: ignore
 
 
 def _extract_status(exc: Exception) -> int | None:
