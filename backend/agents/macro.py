@@ -6,6 +6,7 @@ import logging
 from backend.agents._base import build_agent_prompt, call_llm, extract_json
 from backend.tools.fred import get_macro_snapshot
 from backend.tools.web_search import web_search
+from backend.tools.motley_fool import query_motley_fool
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,19 @@ async def run_macro_agent(openai_client, model: str) -> dict:
                 logger.warning(f"Web search failed: {e}")
                 search_results[query] = []
 
+        # Supplement with Motley Fool macro commentary (local, no rate limits)
+        motley_fool_results = {}
+        try:
+            mf_macro = await query_motley_fool("US Japan macro outlook 2026", article_type="macro", top_k=3)
+            if mf_macro:
+                motley_fool_results["macro"] = mf_macro
+        except Exception as e:
+            logger.warning(f"Motley Fool macro query failed: {e}")
+
         context = {
             "fred_macro_data": fred_data,
             "web_search_results": search_results,
+            "motley_fool_results": motley_fool_results,
             "investment_horizon": "5 years",
         }
 

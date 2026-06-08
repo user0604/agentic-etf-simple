@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -22,24 +22,26 @@ LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "server.log"
 
-file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter(
+_log_formatter = logging.Formatter(
     fmt="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
-))
+)
+
+file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(_log_formatter)
 
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter(
-    fmt="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-))
+console_handler.setFormatter(_log_formatter)
 
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.DEBUG)
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
+
+# Per-run log handlers (added/removed dynamically)
+_run_log_handlers: dict[str, logging.Handler] = {}
 
 logger = logging.getLogger(__name__)
 logger.info(f"Logging to {LOG_FILE.resolve()}")
@@ -58,6 +60,26 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
 
 _active_runs: dict[str, Orchestrator] = {}
+
+
+def _add_run_log_handler(run_id: str, log_dir: Path):
+    """Add a per-run file handler that captures all Python logs."""
+    log_file = log_dir / "server.log"
+    handler = logging.FileHandler(log_file, encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(_log_formatter)
+    handler.addFilter(lambda rec: True)  # capture everything
+    root_logger.addHandler(handler)
+    _run_log_handlers[run_id] = handler
+    logger.info("Per-run logging to %s", log_file)
+
+
+def _remove_run_log_handler(run_id: str):
+    """Remove and close a per-run log handler."""
+    handler = _run_log_handlers.pop(run_id, None)
+    if handler:
+        root_logger.removeHandler(handler)
+        handler.close()
 
 
 class RunRequest(BaseModel):
@@ -80,6 +102,7 @@ async def start_run(req: RunRequest):
     run_id = uuid.uuid4().hex[:12]
     orch = Orchestrator(budget=req.budget, purchase_date=req.date, run_id=run_id)
     _active_runs[run_id] = orch
+    _add_run_log_handler(run_id, orch._logger.path)
     return {"run_id": run_id, "log_path": str(orch._logger.path)}
 
 
@@ -92,6 +115,7 @@ async def resume_run(req: ResumeRequest):
     try:
         orch = Orchestrator.from_run_folder(folder)
         _active_runs[orch.run_id] = orch
+        _add_run_log_handler(orch.run_id, orch._logger.path)
         return {"run_id": orch.run_id, "resumed_from": folder, "phase": orch.phase.value}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to resume: {e}")
@@ -124,6 +148,22 @@ async def stream_events(run_id: str):
     return EventSourceResponse(event_generator())
 
 
+@app.get("/api/run/{run_id}/logs")
+async def get_run_logs(run_id: str, tail: int = Query(200, alias="tail", description="Number of recent lines to return")):
+    """Return the last N lines from this run's server log."""
+    # Check active runs first
+    handler = _run_log_handlers.get(run_id)
+    if handler is None:
+        raise HTTPException(status_code=404, detail="Run not found or no longer active")
+    # The handler's baseFilename gives us the actual log file path
+    log_file = Path(handler.baseFilename)
+    if not log_file.exists() or log_file.stat().st_size == 0:
+        return {"lines": []}
+    with open(log_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    return {"lines": lines[-tail:]}
+
+
 async def _execute_run(orchestrator: Orchestrator, run_id: str):
     try:
         result = await orchestrator.run()
@@ -142,6 +182,8 @@ async def _execute_run(orchestrator: Orchestrator, run_id: str):
         logger.exception("Run failed")
         await orchestrator._emit("A", "error", str(e))
         raise
+    finally:
+        _remove_run_log_handler(run_id)
 
 
 @app.get("/api/runs")
