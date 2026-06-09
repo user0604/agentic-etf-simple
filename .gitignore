@@ -27,7 +27,8 @@ frontend/build/
 outputs/
 backend/runs/
 backend/logs/
-data/articles
+data/articles/
+data/motley_fool_index/
 
 # ── IDE / Editor ─────────────────────────────────────────────────────
 .vscode/
