@@ -24,8 +24,10 @@ frontend/build/
 .env.example
 
 # ── Run output (auto-generated per-run agent call logs) ──────────────
+outputs/
 backend/runs/
 backend/logs/
+data/articles
 
 # ── IDE / Editor ─────────────────────────────────────────────────────
 .vscode/
@@ -42,4 +44,4 @@ Thumbs.db
 desktop.ini
 
 # ── Claude Code ──────────────────────────────────────────────────────
-# .claude/   # Uncomment to exclude CLAUDE.md and project settings from version control
+.claude/   # Uncomment to exclude CLAUDE.md and project settings from version control
