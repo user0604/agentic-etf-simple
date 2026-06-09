@@ -26,8 +26,10 @@ frontend/build/
 # ── Run output (auto-generated per-run agent call logs) ──────────────
 backend/runs/
 backend/logs/
+outputs/
 
 # ── ChromaDB vector index (auto-generated) ───────────────────────
+data/articles
 data/motley_fool_index/
 
 # ── IDE / Editor ─────────────────────────────────────────────────────
@@ -45,4 +47,4 @@ Thumbs.db
 desktop.ini
 
 # ── Claude Code ──────────────────────────────────────────────────────
-# .claude/   # Uncomment to exclude CLAUDE.md and project settings from version control
+.claude/   # Uncomment to exclude CLAUDE.md and project settings from version control
