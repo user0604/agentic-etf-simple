@@ -119,8 +119,10 @@ async def call_llm(
         except Exception as e:
             status = _extract_status(e)
 
-            if status in (429, 502, 503):
-                # Infinite retry on throttling — never give up
+            is_degraded = "DEGRADED" in str(e)
+
+            if status in (429, 502, 503) or is_degraded:
+                # Infinite retry on throttling or NVIDIA NIM DEGRADED — never give up
                 wait = min(2 ** attempt + (attempt * 0.5), 30.0)  # exponential backoff + jitter, cap at 30s
                 key_idx = (_call_counter + attempt - 1) % num_keys if num_keys > 1 else 0
                 logger.warning(
