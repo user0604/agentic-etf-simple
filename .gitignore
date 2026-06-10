@@ -30,6 +30,9 @@ backend/logs/
 data/articles/
 data/motley_fool_index/
 
+# ── ChromaDB vector index (auto-generated) ───────────────────────
+data/motley_fool_index/
+
 # ── IDE / Editor ─────────────────────────────────────────────────────
 .vscode/
 .idea/

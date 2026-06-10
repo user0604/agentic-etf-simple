@@ -4,6 +4,7 @@ import RunForm from './RunForm.jsx';
 import ActivityFeed from './ActivityFeed.jsx';
 import PortfolioTable from './PortfolioTable.jsx';
 import RunHistory from './RunHistory.jsx';
+import ServerLogPanel from './ServerLogPanel.jsx';
 
 const AGENT_ROLES = {
   'A': 'Orchestrator',
@@ -28,6 +29,7 @@ export default function App() {
   const [finalPortfolio, setFinalPortfolio] = useState(null);
   const [activeRunId, setActiveRunId] = useState(null);
   const [agentStatuses, setAgentStatuses] = useState({});
+  const [logVisible, setLogVisible] = useState(true);
   const eventSourceRef = useRef(null);
 
   const { data: pastRuns, refetch: refetchRuns } = useQuery({
@@ -43,7 +45,6 @@ export default function App() {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
 
-      // Track agent statuses for the bottom bar
       if (data.agent && data.status) {
         setAgentStatuses(prev => {
           const next = { ...prev };
@@ -62,7 +63,6 @@ export default function App() {
         });
       }
 
-      // Add client-side received timestamp for display
       data._receivedAt = new Date().toISOString();
       setEvents(prev => [...prev, data]);
 
@@ -138,7 +138,6 @@ export default function App() {
       }
     };
     reader.readAsText(file);
-    // Reset input so the same file can be loaded again
     e.target.value = '';
   }, []);
 
@@ -164,21 +163,11 @@ export default function App() {
     connectSSE(run_id);
   }, [connectSSE]);
 
-  // Compute pipeline status groups
   const pipelineStatus = useMemo(() => {
     const finished = [];
     const working = [];
     const upcoming = [];
 
-    // Get agents that have appeared in events
-    const seenAgents = new Set();
-    for (const ev of events) {
-      if (ev.agent && ev.agent !== 'A' && ev.agent !== 'system' && !ev.agent.startsWith('X')) {
-        seenAgents.add(ev.agent);
-      }
-    }
-
-    // Track research agents separately
     const researchWorking = [];
 
     for (const [agent, status] of Object.entries(agentStatuses)) {
@@ -191,17 +180,13 @@ export default function App() {
       else if (status === 'working') working.push(agent);
     }
 
-    // Determine upcoming: agents in pipeline order not yet started
     for (const agent of PIPELINE_ORDER) {
       const status = agentStatuses[agent];
       if (!status && !finished.includes(agent)) {
         upcoming.push(agent);
-      } else if (status === 'working') {
-        // already counted
       }
     }
 
-    // If research phase is active, show a general "Research Agents" label
     const researchActive = Object.keys(agentStatuses).some(k => k.startsWith('X'));
     const researchDone = Object.keys(agentStatuses).some(k => k.startsWith('X') && agentStatuses[k] === 'done');
 
@@ -211,55 +196,68 @@ export default function App() {
       upcoming,
       researchActive: researchWorking.length > 0 || (researchActive && !researchDone),
     };
-  }, [agentStatuses, events]);
+  }, [agentStatuses]);
+
+  const toggleLog = useCallback(() => setLogVisible(v => !v), []);
 
   return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
       <style>{`
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
       `}</style>
-      {/* Main content area */}
+
+      {/* Main area */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Left sidebar */}
+        {/* Content area — full width, scrollable */}
         <div style={{
-          width: 320, padding: 16, borderRight: '1px solid #21262d',
-          display: 'flex', flexDirection: 'column', gap: 16,
-          overflowY: 'auto',
+          flex: 1, padding: '12px 16px', overflowY: 'auto',
+          display: 'flex', flexDirection: 'column',
         }}>
-          {/* Conditionally hide RunForm when running */}
+          {/* ── Top bar: RunForm + RunHistory (idle) or RunInProgress (running) ── */}
           {!runActive && (
-            <>
+            <div style={{
+              marginBottom: 12, padding: 12, background: '#161b22', borderRadius: 6,
+              border: '1px solid #21262d', flexShrink: 0,
+            }}>
               <RunForm onRun={handleRun} onResume={handleResume} disabled={runActive} />
-              <RunHistory runs={pastRuns} />
-            </>
-          )}
-          {runActive && (
-            <div style={{ padding: '16px 0' }}>
-              <div style={{
-                padding: 12, background: '#161b22', borderRadius: 6,
-                border: '1px solid #30363d', textAlign: 'center',
-              }}>
-                <div style={{ color: '#58a6ff', fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
-                  Run in Progress
-                </div>
-                <div style={{ color: '#8b949e', fontSize: 12 }}>
-                  Run ID: {activeRunId || '...'}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <span style={{
-                    display: 'inline-block', width: 8, height: 8,
-                    borderRadius: '50%', background: '#58a6ff',
-                    animation: 'pulse 1.5s infinite',
-                  }} />
-                </div>
-              </div>
               <RunHistory runs={pastRuns} />
             </div>
           )}
-        </div>
 
-        {/* Content area */}
-        <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
+          {runActive && (
+            <div style={{
+              marginBottom: 12, padding: '8px 14px', background: '#161b22', borderRadius: 6,
+              border: '1px solid #30363d', display: 'flex', alignItems: 'center', gap: 12,
+              flexShrink: 0,
+            }}>
+              <span style={{
+                display: 'inline-block', width: 8, height: 8,
+                borderRadius: '50%', background: '#58a6ff',
+                animation: 'pulse 1.5s infinite', flexShrink: 0,
+              }} />
+              <span style={{ color: '#58a6ff', fontSize: 13, fontWeight: 600 }}>
+                Run in Progress
+              </span>
+              <span style={{ color: '#8b949e', fontSize: 12 }}>
+                Run ID: {activeRunId || '...'}
+              </span>
+              {runActive && (
+                <button
+                  onClick={toggleLog}
+                  title={logVisible ? 'Hide server log' : 'Show server log'}
+                  style={{
+                    marginLeft: 'auto', background: 'none', border: 'none',
+                    color: logVisible ? '#58a6ff' : '#484f58',
+                    cursor: 'pointer', fontSize: 13, padding: '2px 6px',
+                  }}
+                >
+                  {logVisible ? '📋 Hide Log' : '📋 Show Log'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Agent activity feed */}
           <ActivityFeed events={events} agentDisplayFn={agentDisplayName} />
 
           {/* Export / Load toolbar */}
@@ -300,6 +298,24 @@ export default function App() {
 
           {finalPortfolio && <PortfolioTable portfolio={finalPortfolio} />}
         </div>
+
+        {/* Right-side server log panel — toggle */}
+        {logVisible ? (
+          <ServerLogPanel runId={activeRunId} active={runActive} onClose={() => setLogVisible(false)} />
+        ) : (
+          <div style={{
+            width: 24, borderLeft: '1px solid #21262d',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#0d1117', cursor: 'pointer', flexShrink: 0,
+          }} onClick={() => setLogVisible(true)} title="Show server log">
+            <span style={{
+              writingMode: 'vertical-rl', textOrientation: 'mixed',
+              color: '#484f58', fontSize: 12, fontWeight: 600, letterSpacing: '2px',
+            }}>
+              📋 Server Log
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Bottom pipeline status bar */}
@@ -314,7 +330,6 @@ export default function App() {
             Agent Status:
           </span>
 
-          {/* Finished */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ color: '#3fb950' }}>✓</span>
             <span style={{ color: '#8b949e', fontSize: 11, marginRight: 2 }}>Finished:</span>
@@ -327,7 +342,6 @@ export default function App() {
 
           <span style={{ color: '#21262d', userSelect: 'none' }}>|</span>
 
-          {/* Working */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{
               display: 'inline-block', width: 6, height: 6,
@@ -344,7 +358,6 @@ export default function App() {
 
           <span style={{ color: '#21262d', userSelect: 'none' }}>|</span>
 
-          {/* Up next */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ color: '#30363d' }}>→</span>
             <span style={{ color: '#30363d', fontSize: 11, marginRight: 2 }}>Up next:</span>
@@ -354,6 +367,18 @@ export default function App() {
                 : '—'}
             </span>
           </div>
+
+          <button
+            onClick={toggleLog}
+            title={logVisible ? 'Hide server log' : 'Show server log'}
+            style={{
+              marginLeft: 'auto', background: 'none', border: 'none',
+              color: logVisible ? '#58a6ff' : '#484f58',
+              cursor: 'pointer', fontSize: 13, padding: '2px 6px',
+            }}
+          >
+            {logVisible ? '📋 Log' : '📋 Log'}
+          </button>
         </div>
       )}
     </div>

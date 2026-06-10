@@ -13,5 +13,6 @@ duckduckgo_search
 python-dotenv
 httpx
 pandas
+chromadb
 pytest
 pytest-asyncio

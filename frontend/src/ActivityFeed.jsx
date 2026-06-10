@@ -1,5 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+function formatJST(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  // Convert to JST (UTC+9)
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const yyyy = jst.getUTCFullYear();
+  const MM = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(jst.getUTCDate()).padStart(2, '0');
+  const hh = String(jst.getUTCHours()).padStart(2, '0');
+  const mm = String(jst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+  return `${yyyy}/${MM}/${dd} ${hh}:${mm}:${ss}`;
+}
+
 const AGENT_ROLES = {
   'A': 'Orchestrator',
   'M': 'Macro Strategist',
@@ -241,8 +256,17 @@ function smartFormatDetail(detail, agent) {
   if (agent === 'M') return formatMacroBrief(detail);
 
   if (agent && agent.startsWith('X')) {
+    // Research candidates
     if (detail.candidates && Array.isArray(detail.candidates)) {
       return formatCandidates(detail);
+    }
+    // Research plan submission
+    if (detail.plan && typeof detail.plan === 'object' && !Array.isArray(detail.plan)) {
+      return formatResearchPlan(detail.plan);
+    }
+    // Plan approval event — plan may be at top level
+    if (detail.topic || detail.candidate_screening_criteria || detail.approach) {
+      return formatResearchPlan(detail);
     }
   }
 
@@ -369,11 +393,17 @@ function formatGenericJson(detail) {
     if (key === '_prompt' || key === '_user_message' || key === '_response_text') continue;
     const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     if (Array.isArray(value)) {
-      lines.push({ label, value: `${value.length} items` });
+      lines.push({ label, value: `${value.length} items`, raw: value });
     } else if (typeof value === 'object' && value !== null) {
+<<<<<<< HEAD
       lines.push({ label, value: JSON.stringify(value, null, 1) });
     } else {
       lines.push({ label, value: String(value) });
+=======
+      lines.push({ label, value: JSON.stringify(value, null, 2), raw: value });
+    } else {
+      lines.push({ label, value: String(value), raw: value });
+>>>>>>> worktree-feature+mf-deep-integration
     }
   }
   if (lines.length === 0) return null;
@@ -382,11 +412,62 @@ function formatGenericJson(detail) {
       {lines.map((l, i) => (
         <div key={i} style={{ fontSize: 11, marginBottom: 2, color: '#8b949e' }}>
           <span style={{ color: '#8b949e' }}>{l.label}: </span>
+<<<<<<< HEAD
           <span style={{
             color: '#e1e4e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           }}>{l.value}</span>
+=======
+          <span style={{ color: '#e1e4e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{l.value}</span>
+>>>>>>> worktree-feature+mf-deep-integration
         </div>
       ))}
+    </div>
+  );
+}
+
+function formatResearchPlan(detail) {
+  const plan = detail.plan || detail;
+  if (!plan || typeof plan !== 'object') return null;
+  const topic = plan.topic || '';
+  const criteria = plan.candidate_screening_criteria;
+  const sources = plan.intended_sources;
+  const approach = plan.approach;
+  if (!topic && !criteria && !approach) return null;
+  return (
+    <div>
+      <div style={{ fontWeight: 600, marginBottom: 6, color: '#d2a8ff' }}>Research Plan</div>
+      {topic && (
+        <div style={{ marginBottom: 4, fontSize: 12 }}>
+          <span style={{ color: '#8b949e' }}>Topic: </span>
+          <span style={{ color: '#e1e4e8', fontWeight: 600 }}>{topic}</span>
+        </div>
+      )}
+      {criteria && (
+        <div style={{ marginBottom: 4, fontSize: 11 }}>
+          <span style={{ color: '#8b949e' }}>Screening: </span>
+          <span style={{ color: '#58a6ff' }}>{typeof criteria === 'string' ? criteria : JSON.stringify(criteria)}</span>
+        </div>
+      )}
+      {approach && (
+        <div style={{ marginBottom: 4, fontSize: 11 }}>
+          <span style={{ color: '#8b949e' }}>Approach: </span>
+          <span style={{ color: '#e1e4e8' }}>{typeof approach === 'string' ? approach : JSON.stringify(approach)}</span>
+        </div>
+      )}
+      {Array.isArray(sources) && sources.length > 0 && (
+        <div style={{ marginBottom: 2, fontSize: 11 }}>
+          <span style={{ color: '#8b949e' }}>Sources: </span>
+          {sources.map((s, i) => (
+            <span key={i} style={{
+              display: 'inline-block', margin: '1px 3px 1px 0',
+              padding: '0 5px', background: '#1f6feb33', color: '#58a6ff',
+              borderRadius: 3, fontSize: 10,
+            }}>
+              {typeof s === 'string' ? s : s.name || String(s).slice(0, 60)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -438,7 +519,9 @@ export default function ActivityFeed({ events, agentDisplayFn }) {
 
   const displayFn = agentDisplayFn || agentLabel;
 
-  // Group events: if an event has detail, attach it to the previous event
+  // Group events: "detail" events attach their detail payload to the next
+  // non-detail event. If an event carries its own detail field (like
+  // plan_approved), use that as fallback when no pending detail exists.
   const displayEvents = [];
   let pendingDetail = null;
   let pendingDetailAgent = null;
@@ -448,7 +531,15 @@ export default function ActivityFeed({ events, agentDisplayFn }) {
       pendingDetailAgent = ev.agent;
       continue;
     }
-    displayEvents.push({ ...ev, _detail: pendingDetail, _detailAgent: pendingDetailAgent });
+    // Use the event's own detail when available (e.g. plan_approved,
+    // critique verdicts), otherwise fall back to the most recent pending
+    // detail from a preceding "detail" event.
+    const ownDetail = ev.detail || null;
+    displayEvents.push({
+      ...ev,
+      _detail: ownDetail || pendingDetail || null,
+      _detailAgent: ev.agent,
+    });
     pendingDetail = null;
     pendingDetailAgent = null;
   }
@@ -486,8 +577,11 @@ export default function ActivityFeed({ events, agentDisplayFn }) {
           <div key={i} style={{ marginBottom: 8 }}>
             <div style={{
               color: ev.status === 'error' ? '#f85149' : '#e1e4e8',
-              display: 'flex', alignItems: 'flex-start', gap: 8,
+              display: 'flex', alignItems: 'flex-start', gap: 6,
             }}>
+              <span style={{ color: '#484f58', fontSize: 11, flexShrink: 0, minWidth: 115, fontVariantNumeric: 'tabular-nums' }}>
+                {formatJST(ev._receivedAt)}
+              </span>
               <span style={{ color: iconColor(ev), flexShrink: 0 }}>
                 [{icon(ev)}]
               </span>
