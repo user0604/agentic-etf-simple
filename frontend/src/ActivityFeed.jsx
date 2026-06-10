@@ -260,32 +260,102 @@ function formatCandidates(detail) {
       </div>
       {candidates.map((c, i) => (
         <div key={i} style={{
-          marginBottom: 6, padding: '6px 8px', background: '#0d1117',
-          borderRadius: 4, border: '1px solid #21262d', fontSize: 11,
+          marginBottom: 8, padding: '8px 10px', background: '#0d1117',
+          borderRadius: 6, border: '1px solid #21262d', fontSize: 11,
         }}>
-          <div style={{ color: '#e1e4e8' }}>
-            <strong>{c.ticker || '?'}</strong>
-            {c.name && <span style={{ color: '#8b949e' }}> — {c.name}</span>}
+          {/* Ticker + Name + Exchange */}
+          <div style={{ color: '#e1e4e8', marginBottom: 4 }}>
+            <strong style={{ fontSize: 13 }}>{c.ticker || '?'}</strong>
+            {c.exchange && <span style={{ color: '#8b949e', fontSize: 10, marginLeft: 4 }}>{c.exchange}</span>}
+            {c.name && <span style={{ color: '#8b949e', marginLeft: 4 }}>— {c.name}</span>}
           </div>
-          <div style={{ color: '#8b949e', marginTop: 2 }}>
-            {c.sector && <span>{c.sector}{c.industry ? ` / ${c.industry}` : ''} · </span>}
-            {c.market_cap && <span>Mkt Cap: {c.market_cap} · </span>}
-            {c.price && <span>Price: {c.price}</span>}
-          </div>
-          <div style={{ marginTop: 2 }}>
-            {c.base_return_pct != null && (
-              <span style={{ color: '#3fb950', marginRight: 6 }}>Return: {c.base_return_pct}%</span>
+
+          {/* Sector/Industry */}
+          {(c.sector || c.industry || c.sub_industry) && (
+            <div style={{ color: '#8b949e', marginBottom: 4 }}>
+              {c.sector && <span>{c.sector}</span>}
+              {(c.industry || c.sub_industry) && <span> / {c.industry || c.sub_industry}</span>}
+              {c.price && <span> · Price: {c.price}</span>}
+              {c.market_cap && <span> · Mkt Cap: {c.market_cap}</span>}
+            </div>
+          )}
+
+          {/* Thesis — blue accent bar */}
+          {c.thesis && (
+            <div style={{
+              marginBottom: 6, padding: '6px 8px', background: '#0c2d6b33',
+              borderLeft: '3px solid #58a6ff', borderRadius: '0 4px 4px 0',
+              color: '#c9d1d9', lineHeight: 1.4,
+            }}>
+              {c.thesis}
+            </div>
+          )}
+
+          {/* Scenario grid: Bull / Base / Bear */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            {c.bull_case && (
+              <div style={{ flex: 1, padding: '5px 6px', background: '#0d2818', borderRadius: 4, border: '1px solid #1a3a2a' }}>
+                <div style={{ color: '#3fb950', fontWeight: 600, marginBottom: 2 }}>Bull {c.bull_return_pct != null ? `+${c.bull_return_pct}%` : ''}</div>
+                <div style={{ color: '#8b949e', fontSize: 10, lineHeight: 1.3 }}>{c.bull_case}</div>
+              </div>
             )}
+            {c.base_case && (
+              <div style={{ flex: 1, padding: '5px 6px', background: '#1c1c1c', borderRadius: 4, border: '1px solid #30363d' }}>
+                <div style={{ color: '#e1e4e8', fontWeight: 600, marginBottom: 2 }}>Base {c.base_return_pct != null ? `${c.base_return_pct >= 0 ? '+' : ''}${c.base_return_pct}%` : ''}</div>
+                <div style={{ color: '#8b949e', fontSize: 10, lineHeight: 1.3 }}>{c.base_case}</div>
+              </div>
+            )}
+            {c.bear_case && (
+              <div style={{ flex: 1, padding: '5px 6px', background: '#2d0c0c', borderRadius: 4, border: '1px solid #4a1a1a' }}>
+                <div style={{ color: '#f85149', fontWeight: 600, marginBottom: 2 }}>Bear {c.bear_downside_pct != null ? `${c.bear_downside_pct}%` : ''}</div>
+                <div style={{ color: '#8b949e', fontSize: 10, lineHeight: 1.3 }}>{c.bear_case}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Confidence badge + reason */}
+          <div style={{ marginBottom: 4 }}>
             {c.confidence && (
               <span style={{
-                padding: '0 4px', borderRadius: 2,
-                background: c.confidence === 'high' ? '#23863633' : c.confidence === 'medium' ? '#d2992233' : '#21262d',
-                color: c.confidence === 'high' ? '#3fb950' : c.confidence === 'medium' ? '#d29922' : '#8b949e',
+                padding: '1px 5px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                background: c.confidence === 'high' ? '#23863633' : c.confidence === 'medium' || c.confidence === 'medium-high' ? '#d2992233' : '#21262d',
+                color: c.confidence === 'high' ? '#3fb950' : c.confidence === 'medium' || c.confidence === 'medium-high' ? '#d29922' : '#8b949e',
+                marginRight: 4,
               }}>
                 {c.confidence}
               </span>
             )}
+            {c.confidence_reason && (
+              <span style={{ color: '#8b949e', fontStyle: 'italic' }}>{c.confidence_reason}</span>
+            )}
           </div>
+
+          {/* Known catch with severity */}
+          {c.known_catch && (
+            <div style={{
+              padding: '5px 6px', background: '#2d1c0c', borderRadius: 4,
+              border: '1px solid #4a301a', marginBottom: 4,
+            }}>
+              <span style={{ color: '#d29922', fontWeight: 600 }}>⚠ Catch: </span>
+              <span style={{ color: '#c9d1d9' }}>{c.known_catch}</span>
+              {c.catch_severity && (
+                <span style={{
+                  marginLeft: 4, padding: '0 4px', borderRadius: 2, fontSize: 10,
+                  background: c.catch_severity.toLowerCase().startsWith('high') ? '#f8514933' : c.catch_severity.toLowerCase().startsWith('moderate') ? '#d2992233' : '#21262d',
+                  color: c.catch_severity.toLowerCase().startsWith('high') ? '#f85149' : c.catch_severity.toLowerCase().startsWith('moderate') ? '#d29922' : '#8b949e',
+                }}>
+                  {c.catch_severity}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Data sources */}
+          {c.data_sources && Array.isArray(c.data_sources) && c.data_sources.length > 0 && (
+            <div style={{ color: '#8b949e', fontSize: 10 }}>
+              Sources: {c.data_sources.join(', ')}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -301,9 +371,9 @@ function formatGenericJson(detail) {
     if (Array.isArray(value)) {
       lines.push({ label, value: `${value.length} items` });
     } else if (typeof value === 'object' && value !== null) {
-      lines.push({ label, value: JSON.stringify(value).slice(0, 120) });
+      lines.push({ label, value: JSON.stringify(value, null, 1) });
     } else {
-      lines.push({ label, value: String(value).slice(0, 200) });
+      lines.push({ label, value: String(value) });
     }
   }
   if (lines.length === 0) return null;
@@ -312,7 +382,9 @@ function formatGenericJson(detail) {
       {lines.map((l, i) => (
         <div key={i} style={{ fontSize: 11, marginBottom: 2, color: '#8b949e' }}>
           <span style={{ color: '#8b949e' }}>{l.label}: </span>
-          <span style={{ color: '#e1e4e8' }}>{l.value}</span>
+          <span style={{
+            color: '#e1e4e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          }}>{l.value}</span>
         </div>
       ))}
     </div>

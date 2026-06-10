@@ -166,3 +166,170 @@ class TestCallAgent:
         import asyncio
         result = asyncio.run(orch._call_agent("test", "test", extra="data"))
         assert result == {"status": "done"}
+
+
+class TestResearchTaskNormalization:
+    """_phase_planning normalizes research_tasks from strings to dicts."""
+
+    def _run_planning(self, orch, research_tasks):
+        """Helper: simulate B returning the given research_tasks."""
+        orch._call_agent = AsyncMock(return_value={
+            "agent": "B", "status": "done",
+            "research_tasks": research_tasks,
+            "fx_rate": "145.0",
+        })
+        import asyncio
+        asyncio.run(orch._phase_planning())
+
+    def test_dict_tasks_pass_through(self, orch):
+        tasks = [
+            {"topic": "us_semiconductors", "industry": "Technology", "geography": "US", "focus": "AI chips"},
+            {"topic": "japan_auto", "industry": "Automotive", "geography": "Japan", "focus": "EV transition"},
+        ]
+        self._run_planning(orch, tasks)
+        assert len(orch.outputs["research_tasks"]) == 2
+        assert orch.outputs["research_tasks"][0]["topic"] == "us_semiconductors"
+        assert orch.outputs["research_tasks"][1]["industry"] == "Automotive"
+
+    def test_string_tasks_wrapped_to_dicts(self, orch):
+        tasks = ["us_semiconductors", "japan_auto"]
+        self._run_planning(orch, tasks)
+        assert len(orch.outputs["research_tasks"]) == 2
+        assert orch.outputs["research_tasks"][0]["topic"] == "us_semiconductors"
+        assert orch.outputs["research_tasks"][0]["focus"] == "us_semiconductors"
+        assert orch.outputs["research_tasks"][0]["industry"] == ""
+        assert orch.outputs["research_tasks"][0]["geography"] == ""
+
+    def test_mixed_tasks_normalized(self, orch):
+        tasks = ["us_semiconductors", {"topic": "japan_auto", "focus": "EV", "geography": "Japan"}]
+        self._run_planning(orch, tasks)
+        assert len(orch.outputs["research_tasks"]) == 2
+        assert isinstance(orch.outputs["research_tasks"][0], dict)
+        assert orch.outputs["research_tasks"][0]["topic"] == "us_semiconductors"
+        assert isinstance(orch.outputs["research_tasks"][1], dict)
+        assert orch.outputs["research_tasks"][1]["topic"] == "japan_auto"
+
+    def test_empty_tasks_handled(self, orch):
+        self._run_planning(orch, [])
+        assert orch.outputs["research_tasks"] == []
+
+    def test_missing_tasks_handled(self, orch):
+        orch._call_agent = AsyncMock(return_value={
+            "agent": "B", "status": "done",
+            "fx_rate": "145.0",
+        })
+        import asyncio
+        asyncio.run(orch._phase_planning())
+        assert orch.outputs["research_tasks"] == []
+
+
+class TestFromRunFolder:
+    """from_run_folder correctly determines next phase from saved runs."""
+
+    def test_resume_from_macro(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [], "last_phase": "macro", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.PLANNING
+
+    def test_resume_from_planning(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "macro", "agent": "M",
+                           "parsed_result": {"macro_brief": {"fed_policy": "hawkish"}}}],
+                "last_phase": "planning", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.RESEARCH
+
+    def test_resume_from_critique_3(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": f"critique_{i}", "agent": "C", "parsed_result": {}}
+                          for i in (1, 2, 3)] +
+                         [{"phase": f"critique_{i}", "agent": "B",
+                           "parsed_result": {"portfolio_draft": {"holdings": []}}}
+                          for i in (1, 2, 3)],
+                "last_phase": "critique_3", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.TIEBREAK
+
+    def test_resume_from_tiebreak_with_b_revision(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "tiebreak", "agent": "D", "parsed_result": {"verdict": "B must revise"}},
+                          {"phase": "tiebreak", "agent": "B",
+                           "parsed_result": {"portfolio_draft": {"holdings": []}}}],
+                "last_phase": "tiebreak", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.FINAL
+
+    def test_resume_from_tiebreak_without_b_revision(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "tiebreak", "agent": "D", "parsed_result": {"verdict": "B must revise"}}],
+                "last_phase": "tiebreak", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.TIEBREAK
+
+    def test_resume_from_unknown_phase_falls_back_to_macro(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [], "last_phase": "nonexistent", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert orch.phase == Phase.MACRO
+
+    def test_resume_restores_critique_history(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "critique_1", "agent": "C", "parsed_result": {"critique": "too risky"}},
+                          {"phase": "critique_1", "agent": "B", "parsed_result": {"defence": "hedged"}},
+                          {"phase": "critique_2", "agent": "C", "parsed_result": {"critique": "fx risk"}},
+                          {"phase": "critique_2", "agent": "B",
+                           "parsed_result": {"defence": "hedged", "portfolio_draft": {}}}],
+                "last_phase": "critique_2", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        assert len(orch.critique_history) == 2
+        assert orch.critique_history[0][0] == 1
+        assert orch.critique_history[0][1]["critique"] == "too risky"
+        assert orch.critique_history[1][2]["defence"] == "hedged"
+
+    def test_resume_restores_research_cache(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "research", "agent": "X1",
+                           "parsed_result": {"candidates": [{"ticker": "NVDA"}]},
+                           "user_message": "us_semiconductors"},
+                          {"phase": "research", "agent": "X2",
+                           "parsed_result": {"candidates": [{"ticker": "SONY"}]},
+                           "user_message": "japan_consumer"}],
+                "last_phase": "research", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        all_candidates = []
+        for topic, candidates in orch.research_cache.items():
+            all_candidates.extend(candidates)
+        assert len(all_candidates) >= 2
+
+    def test_resume_normalizes_string_tasks(self, monkeypatch):
+        data = {"meta": {"budget": "1000000", "purchase_date": "2026-06-09", "run_id": "test"},
+                "calls": [{"phase": "planning", "agent": "B",
+                           "parsed_result": {"research_tasks": ["us_semiconductors", "japan_auto"]}}],
+                "last_phase": "planning", "m_updates": []}
+        import backend.orchestrator as m
+        monkeypatch.setattr(m, "load_run_folder", lambda _: data)
+        orch = Orchestrator.from_run_folder("/fake/path")
+        tasks = orch.outputs["research_tasks"]
+        assert len(tasks) == 2
+        assert isinstance(tasks[0], dict)
+        assert tasks[0]["topic"] == "us_semiconductors"
+        assert tasks[0]["industry"] == ""
+        assert isinstance(tasks[1], dict)
+        assert tasks[1]["topic"] == "japan_auto"

@@ -53,7 +53,8 @@ class Orchestrator:
         # call_llm in _base.py rotates through all keys on retry.
         api_keys = [k.strip() for k in nim_api_key.split(",") if k.strip()]
         first_key = api_keys[0] if api_keys else ""
-        self.client = AsyncOpenAI(api_key=first_key, base_url=nim_base_url)
+        self.client = AsyncOpenAI(api_key=first_key, base_url=nim_base_url,
+                                   timeout=120.0, max_retries=0)
 
         self.phase = Phase.MACRO
         self.m_update_count = 0
@@ -189,7 +190,16 @@ class Orchestrator:
             "backend.agents.portfolio", "run_portfolio_agent",
             macro_brief=self.outputs["macro_brief"], context=self._get_context()
         )
-        self.outputs["research_tasks"] = result.get("research_tasks", [])
+        research_tasks = result.get("research_tasks", [])
+        normalized_tasks = []
+        for t in research_tasks:
+            if isinstance(t, str):
+                normalized_tasks.append({"topic": t, "focus": t, "industry": "", "geography": ""})
+            elif isinstance(t, dict):
+                normalized_tasks.append(t)
+            else:
+                normalized_tasks.append({"topic": str(t), "focus": str(t), "industry": "", "geography": ""})
+        self.outputs["research_tasks"] = normalized_tasks
         self.agents["B"] = AgentStatus.DONE
         await self._emit("B", "done", f"Research plan: {len(self.outputs['research_tasks'])} tasks issued",
                          detail={"tasks": self.outputs["research_tasks"],
@@ -497,7 +507,16 @@ class Orchestrator:
             if phase == "macro" and agent == "M":
                 orch.outputs["macro_brief"] = parsed.get("macro_brief")
             elif phase == "planning" and agent == "B":
-                orch.outputs["research_tasks"] = parsed.get("research_tasks", [])
+                raw_tasks = parsed.get("research_tasks", [])
+                normalized = []
+                for t in raw_tasks:
+                    if isinstance(t, str):
+                        normalized.append({"topic": t, "focus": t, "industry": "", "geography": ""})
+                    elif isinstance(t, dict):
+                        normalized.append(t)
+                    else:
+                        normalized.append({"topic": str(t), "focus": str(t), "industry": "", "geography": ""})
+                orch.outputs["research_tasks"] = normalized
             elif phase == "research" and "X" in agent:
                 topic = parsed.get("output_key", call.get("user_message", "")[:20])
                 orch.research_cache[topic] = parsed.get("candidates", [])
@@ -541,6 +560,12 @@ class Orchestrator:
             "tiebreak": Phase.TIEBREAK,
             "final": Phase.MACRO,
         }
+        # Check whether B's tiebreak revision was persisted
+        _tiebreak_b_revision_done = any(
+            call.get("phase") == "tiebreak" and call.get("agent") == "B"
+            for call in data.get("calls", [])
+        )
+
         next_phase_map = {
             "macro": Phase.PLANNING,
             "planning": Phase.RESEARCH,
@@ -549,10 +574,12 @@ class Orchestrator:
             "critique_1": Phase.CRITIQUE_2,
             "critique_2": Phase.CRITIQUE_3,
             "critique_3": Phase.TIEBREAK,
-            "tiebreak": Phase.FINAL,
+            "tiebreak": Phase.TIEBREAK,
         }
 
-        if last_phase and last_phase in next_phase_map:
+        if last_phase == "tiebreak" and _tiebreak_b_revision_done:
+            orch.phase = Phase.FINAL
+        elif last_phase and last_phase in next_phase_map:
             orch.phase = next_phase_map[last_phase]
         else:
             orch.phase = Phase.MACRO
@@ -593,6 +620,12 @@ class Orchestrator:
                 await self._emit("A", "error", f"Phase {self.phase} failed: {e}")
                 raise
             if self.phase == Phase.FINAL:
+                # If the handler that just ran set FINAL but wasn't _phase_final
+                # itself (e.g. _phase_tiebreak or _phase_critique), we still
+                # need to run _phase_final to emit final events and build the
+                # portfolio output. On resume (handler IS _phase_final), skip.
+                if handler != self._phase_final:
+                    await self._phase_final()
                 break
 
-        return self.outputs["portfolio_final"]
+        return self.outputs.get("portfolio_final", {})
