@@ -6,6 +6,7 @@ import logging
 
 from backend.agents._base import build_agent_prompt, call_llm, extract_json
 from backend.tools.web_search import web_search
+from backend.tools.motley_fool import query_motley_fool
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,17 @@ async def run_researcher_agent(openai_client, model: str, brief: dict, plan_hash
                 logger.warning(f"Research search failed: {e}")
                 search_results[q] = []
 
-        context_data = {"brief": brief, "web_search_results": search_results}
+        # Supplement with Motley Fool corpus (local, no rate limits)
+        motley_fool_results = {}
+        try:
+            mf_results = await query_motley_fool(focus, top_k=5)
+            if mf_results:
+                motley_fool_results["broad"] = mf_results
+        except Exception as e:
+            logger.warning(f"Motley Fool query failed: {e}")
+
+        context_data = {"brief": brief, "web_search_results": search_results,
+                        "motley_fool_results": motley_fool_results}
         system_prompt = build_agent_prompt(
             role=f"Equity Researcher — {topic}", context=context_data,
             instructions=(
