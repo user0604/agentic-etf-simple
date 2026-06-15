@@ -532,11 +532,12 @@ completed phase:
    - Restores `m_update_count` and `m_update_changelog`
    - Determines next phase from the last completed phase:
      `macro → planning → research → draft → critique_1 → critique_2 → critique_3 → tiebreak → final`
-	   - **Tiebreak sub-step detection:** The tiebreak phase has two LLM calls
-	     (D's verdict then B's revision). `from_run_folder` checks whether B's
-	     revision call was persisted. If yes → `Phase.FINAL` (resume from final).
-	     If not → `Phase.TIEBREAK` (re-run B's revision). This prevents the
-	     pipeline from jumping to FINAL with stale portfolio data.
+   - **Tiebreak sub-step detection:** In the tiebreak phase, A saves B's
+     revision as a separate persisted file. The resume logic checks whether
+     this revision was saved (`_tiebreak_b_revision_done`). If present, the
+     resume maps `tiebreak → final`; otherwise it stays on `tiebreak` to
+     re-run the tiebreak from scratch. This prevents double-calling
+     `_phase_final` or skipping tiebreak entirely on resume.
 
 2. **`POST /api/run/resume`** — FastAPI endpoint accepting `{folder: "..."}`.
    Returns `{run_id, resumed_from, phase}` and sets up SSE streaming for the

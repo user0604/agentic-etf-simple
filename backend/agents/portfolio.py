@@ -138,8 +138,8 @@ async def _construct_draft(openai_client, model: str, macro_brief: dict, context
 
     base = {"_prompt": system_prompt, "_user_message": user_msg, "_response_text": response_text}
 
-    if not result or "portfolio_draft" not in result:
-        fallback = {"fx_rate": "145.0", "holdings": [], "total_allocated_pct": 0}
+    fallback = {"fx_rate": "145.0", "holdings": [], "total_allocated_pct": 0}
+    if not result or "portfolio_draft" not in result or not isinstance(result["portfolio_draft"], dict):
         return {"agent": "B", "status": "done", "portfolio_draft": fallback,
                 "m_update_signal": {"triggered": False, "reason": None},
                 **base, "_detail": fallback}
@@ -170,7 +170,7 @@ async def _revise_portfolio(openai_client, model: str, macro_brief: dict, contex
 
     base = {"_prompt": system_prompt, "_user_message": user_msg, "_response_text": response_text}
 
-    if not result or "portfolio_draft" not in result:
+    if not result or "portfolio_draft" not in result or not isinstance(result["portfolio_draft"], dict):
         return {"agent": "B", "status": "done", "portfolio_draft": current_draft,
                 "m_update_signal": {"triggered": False, "reason": None}, **base}
 
