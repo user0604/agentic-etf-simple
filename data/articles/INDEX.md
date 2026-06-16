@@ -1,43 +1,16 @@
-# Motley Fool Epic Article Archive
+# Motley Fool Article Archive
 
-**Total: 2721 articles** (May 7 – June 5, 2026) — Newest first
+**Total: 2879 articles** — Organized by service/source
 
-| Folder | Articles | Description |
-|--------|----------|-------------|
-| [epic/](epic/INDEX.md) | 903 | Epic service — Bull & Bear stock analyses |
-| [premium/](premium/INDEX.md) | 1818 | General premium coverage — earnings, news, analysis |
-
-### Date distribution
-- **2026-06-05**: 22 articles
-- **2026-06-04**: 72 articles
-- **2026-06-03**: 74 articles
-- **2026-06-02**: 73 articles
-- **2026-06-01**: 68 articles
-- **2026-05-31**: 1 articles
-- **2026-05-30**: 1 articles
-- **2026-05-29**: 68 articles
-- **2026-05-28**: 98 articles
-- **2026-05-27**: 93 articles
-- **2026-05-26**: 113 articles
-- **2026-05-25**: 87 articles
-- **2026-05-24**: 1 articles
-- **2026-05-23**: 1 articles
-- **2026-05-22**: 80 articles
-- **2026-05-21**: 85 articles
-- **2026-05-20**: 105 articles
-- **2026-05-19**: 126 articles
-- **2026-05-18**: 104 articles
-- **2026-05-17**: 1 articles
-- **2026-05-16**: 1 articles
-- **2026-05-15**: 105 articles
-- **2026-05-14**: 277 articles
-- **2026-05-13**: 264 articles
-- **2026-05-12**: 201 articles
-- **2026-05-11**: 240 articles
-- **2026-05-10**: 1 articles
-- **2026-05-09**: 1 articles
-- **2026-05-08**: 111 articles
-- **2026-05-07**: 247 articles
+| Folder | Articles | Description | Date Range |
+|--------|----------|-------------|------------|
+| [premium/](premium/INDEX.md) | 1843 | General premium coverage — earnings, news, analysis | May 7 – Jun 15 |
+| [epic/](epic/INDEX.md) | 921 | Epic service — Bull & Bear stock analyses | May 11 – Jun 15 |
+| [rankings/](rankings/INDEX.md) | 91 | Rankings + Moneyball — ticker financial summaries | — |
+| [new-recs/](new-recs/INDEX.md) | 22 | New Recommendations — ticker deep-dive analyses | May 19 – Jun 15 |
+| [stock-advisor/](stock-advisor/INDEX.md) | 2 | Stock Advisor — recommendations & analysis | Jun 10–12 |
 
 ### Stats
-- Total size: 15.2 MB
+- **Total files:** 2879
+- **Newly added this session:** 40+ articles + ticker summaries
+- **Reorganized:** macro/ → premium/, epic_exclusive/ → epic/, ticker_analysis/ split into rankings/ + new-recs/
